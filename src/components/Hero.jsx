@@ -1,24 +1,54 @@
-import Spline from '@splinetool/react-spline';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 
-export default function Hero() {
-  const [canRenderSpline, setCanRenderSpline] = useState(false);
+// Lazy-load Spline only when we actually intend to render it
+const LazySpline = ({ scene }) => {
+  const [Component, setComponent] = useState(null);
 
   useEffect(() => {
+    let mounted = true;
+    import('@splinetool/react-spline')
+      .then((mod) => {
+        if (mounted) setComponent(() => mod.default);
+      })
+      .catch(() => {
+        // If Spline fails to load, silently fall back
+        if (mounted) setComponent(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (!Component) return null;
+  return <Component scene={scene} />;
+};
+
+export default function Hero() {
+  const [shouldUseSpline, setShouldUseSpline] = useState(false);
+
+  // Read Spline scene URL from env; if not present, we disable Spline to avoid runtime errors
+  const splineScene = useMemo(() => import.meta.env.VITE_SPLINE_SCENE?.trim() || '', []);
+
+  useEffect(() => {
+    // Respect reduced motion and avoid on very low-end devices
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const isLowEnd = navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2;
-    setCanRenderSpline(!mq.matches && !isLowEnd);
-  }, []);
+
+    // Only enable Spline if a valid scene URL is provided
+    const hasScene = Boolean(splineScene && /^https?:\/\//.test(splineScene));
+    setShouldUseSpline(!mq.matches && !isLowEnd && hasScene);
+  }, [splineScene]);
 
   return (
     <section className="relative min-h-[80vh] flex items-center justify-center bg-[#0A0A0A] overflow-hidden">
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_30%_20%,rgba(220,20,60,0.08),transparent_35%),radial-gradient(circle_at_70%_80%,rgba(220,20,60,0.06),transparent_40%)]" />
 
-      {canRenderSpline ? (
+      {shouldUseSpline ? (
         <div className="absolute inset-0 opacity-80">
-          {/* Replace the URL below with the provided Spline scene URL */}
-          <Spline scene="https://prod.spline.design/placeholder/scene.splinecode" />
+          <Suspense fallback={null}>
+            <LazySpline scene={splineScene} />
+          </Suspense>
         </div>
       ) : (
         <div className="absolute inset-0 bg-[url('/hero-fallback.jpg')] bg-cover bg-center opacity-60" />
